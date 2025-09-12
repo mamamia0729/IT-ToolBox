@@ -1,0 +1,58 @@
+# PowerShell and Windows specific files
+*.log
+*.tmp
+*.temp
+*~
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# PowerShell specific
+*.ps1xml
+profile.ps1
+Microsoft.PowerShell_profile.ps1
+
+# Logs and output files
+*.csv
+*.json
+*.xml
+logs/
+output/
+results/
+reports/
+
+# Credentials and sensitive data
+*credential*
+*secret*
+*password*
+*.pfx
+*.p12
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test files
+test-results/
+test-output/
+
+# Backup files
+*.bak
+*.backup
+*.orig
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Icon?
+
+# IT-ToolBox specific
+maintenance-results*.csv
+operation-logs/
+computer-lists/

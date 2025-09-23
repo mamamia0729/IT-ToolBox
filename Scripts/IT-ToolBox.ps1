@@ -8,6 +8,7 @@
     - Print Spooler service restart
     - Remote Desktop Services restart 
     - Adobe Acrobat DC sign-in fix (registry modification)
+    - Advanced MSP Cleanup (disk space recovery from Windows Installer cache)
     - Always shows interactive menu for operation selection (expandable for future features)
     - Prompts for computer name after operation selection
     - Connectivity testing, service status checking, and proper error handling
@@ -23,7 +24,7 @@
 
 .NOTES
     Author: IT Support Team
-    Version: 3.2 - Optimized for single operation mode (better tracking)
+    Version: 4.0 - Added Advanced MSP Cleanup feature (disk space recovery)
     Requires: PowerShell 5.1+, Administrative privileges for remote operations
     Workflow: Menu first → Operation selection → Computer name prompt → Execute
     Future: Additional services/fixes can be easily added to the $availableServices array
@@ -182,12 +183,12 @@ function Show-ServiceSelectionMenu {
     Write-Host "`nOptions:" -ForegroundColor White
     Write-Host "Q. Quit" -ForegroundColor Yellow
     Write-Host "`nInstructions:" -ForegroundColor White
-    Write-Host "- Enter a single number (1, 2, or 3)" -ForegroundColor Gray
+Write-Host "- Enter a single number (1, 2, 3, or 4)" -ForegroundColor Gray
     Write-Host "- Enter 'Q' to quit without making changes" -ForegroundColor Gray
     Write-Host ("=" * 60) -ForegroundColor Cyan
     
     do {
-        $selection = Read-Host "`nSelect operation to perform (1, 2, 3, or Q to quit)"
+        $selection = Read-Host "`nSelect operation to perform (1, 2, 3, 4, or Q to quit)"
         
         # Handle empty or whitespace-only input (PS 5.1 compatible)
         if ($selection -eq $null -or $selection.Trim() -eq "") {
@@ -216,6 +217,88 @@ function Show-ServiceSelectionMenu {
         Write-Host "Please try again." -ForegroundColor Yellow
         
     } while ($true)
+}
+
+# Function to run Advanced MSP Cleanup
+function Invoke-AdvancedMSPCleanup {
+    param(
+        [string]$Computer
+    )
+    
+    Write-Host "`nStarting Advanced MSP Cleanup on $Computer..." -ForegroundColor Cyan
+    
+    # Test administrative share access first
+    $installerPath = "\\$Computer\C$\Windows\Installer"
+    if (-not (Test-Path $installerPath)) {
+        Write-Host "[FAIL] Cannot access Windows Installer path: $installerPath" -ForegroundColor Red
+        Write-Host "[INFO] Ensure administrative shares are enabled and accessible" -ForegroundColor Yellow
+        return $false
+    }
+    
+    Write-Host "[OK] Administrative share access confirmed" -ForegroundColor Green
+    
+    try {
+        # Analyze current MSP files
+        Write-Host "Analyzing MSP files (this may take a moment)..." -ForegroundColor Yellow
+        $allMspFiles = Get-ChildItem $installerPath -Filter "*.msp" -ErrorAction Stop
+        $oldDate = (Get-Date).AddDays(-7)  # 7-day aggressive cleanup
+        $targetFiles = $allMspFiles | Where-Object {$_.LastWriteTime -lt $oldDate} | Sort-Object Length -Descending
+        
+        $analysis = @{
+            TotalMSPFiles = $allMspFiles.Count
+            TotalMSPSizeGB = [math]::Round(($allMspFiles | Measure-Object Length -Sum).Sum/1GB, 2)
+            TargetFiles = $targetFiles.Count
+            TargetSizeGB = if ($targetFiles) { [math]::Round(($targetFiles | Measure-Object Length -Sum).Sum/1GB, 2) } else { 0 }
+        }
+        
+        Write-Host "[ANALYSIS] Total MSP files: $($analysis.TotalMSPFiles) ($($analysis.TotalMSPSizeGB) GB)" -ForegroundColor White
+        Write-Host "[ANALYSIS] Files older than 7 days: $($analysis.TargetFiles) ($($analysis.TargetSizeGB) GB)" -ForegroundColor White
+        
+        if ($analysis.TargetFiles -eq 0) {
+            Write-Host "[SUCCESS] No cleanup needed - all MSP files are recent" -ForegroundColor Green
+            return $true
+        }
+        
+        # Confirm cleanup
+        Write-Host ""
+        $cleanup = Read-Host "Proceed with cleanup of $($analysis.TargetFiles) files ($($analysis.TargetSizeGB) GB)? (Y/N)"
+        if ($cleanup -ne "Y" -and $cleanup -ne "y") {
+            Write-Host "[INFO] MSP cleanup cancelled by user" -ForegroundColor Yellow
+            return $true
+        }
+        
+        # Perform cleanup
+        Write-Host "`n[INFO] Starting MSP file cleanup..." -ForegroundColor Cyan
+        $deletedCount = 0
+        $deletedSize = 0
+        
+        foreach ($file in $targetFiles) {
+            try {
+                Remove-Item $file.FullName -Force -ErrorAction Stop
+                $deletedSize += $file.Length
+                $deletedCount++
+                
+                if ($deletedCount % 25 -eq 0) {
+                    $freedGB = [math]::Round($deletedSize/1GB, 2)
+                    Write-Host "[PROGRESS] Deleted $deletedCount files, freed ${freedGB} GB" -ForegroundColor Green
+                }
+            } catch {
+                Write-Host "[WARN] Could not delete $($file.Name): $($_.Exception.Message)" -ForegroundColor Yellow
+            }
+        }
+        
+        $finalFreedGB = [math]::Round($deletedSize/1GB, 2)
+        Write-Host ""
+        Write-Host "[SUCCESS] MSP Cleanup completed!" -ForegroundColor Green
+        Write-Host "[SUCCESS] Files deleted: $deletedCount" -ForegroundColor Green
+        Write-Host "[SUCCESS] Space freed: ${finalFreedGB} GB" -ForegroundColor Green
+        
+        return $true
+        
+    } catch {
+        Write-Host "[FAIL] Error during MSP cleanup: $($_.Exception.Message)" -ForegroundColor Red
+        return $false
+    }
 }
 
 # Function to apply Adobe Acrobat DC registry fix
@@ -333,6 +416,12 @@ $availableServices = @(
         DisplayName = "Adobe Acrobat DC Sign-in Fix"
         Description = "Applies registry fix to stop Adobe Acrobat DC sign-in prompts"
         Type = "Registry"
+    }),
+    (New-Object PSObject -Property @{
+        Name = "MSPCleanup"
+        DisplayName = "Advanced MSP Cleanup"
+        Description = "Cleans up old MSP files from Windows Installer cache (can recover 100+ GB)"
+        Type = "Custom"
     })
     # TO ADD MORE SERVICES, add them here following this pattern:
     # ,(New-Object PSObject -Property @{
@@ -388,9 +477,10 @@ if (-not (Test-RemoteConnectivity -Computer $ComputerName)) {
 # Step 5: Execute operations
 Write-Host "`nStep 5: Executing operations" -ForegroundColor Magenta
 
-# Separate services and registry operations
+# Separate services, registry operations, and custom operations
 $services = $servicesToRestart | Where-Object { $_.Type -eq "Service" -or $_.Type -eq $null }
 $registryOps = $servicesToRestart | Where-Object { $_.Type -eq "Registry" }
+$customOps = $servicesToRestart | Where-Object { $_.Type -eq "Custom" }
 
 # Show initial service status (if any services selected)
 if ($services.Count -gt 0) {
@@ -407,6 +497,19 @@ foreach ($regOp in $registryOps) {
             Write-Host "[SUCCESS] $($regOp.DisplayName) applied successfully" -ForegroundColor Green
         } else {
             Write-Host "[FAILED] Failed to apply $($regOp.DisplayName)" -ForegroundColor Red
+        }
+    }
+}
+
+# Execute custom operations
+foreach ($customOp in $customOps) {
+    if ($customOp.Name -eq "MSPCleanup") {
+        $success = Invoke-AdvancedMSPCleanup -Computer $ComputerName
+        
+        if ($success) {
+            Write-Host "[SUCCESS] $($customOp.DisplayName) completed successfully" -ForegroundColor Green
+        } else {
+            Write-Host "[FAILED] Failed to complete $($customOp.DisplayName)" -ForegroundColor Red
         }
     }
 }
@@ -455,9 +558,10 @@ powershell.exe -File .\IT-ToolBox.ps1
 # 1. Print Spooler (service restart)
 # 2. Remote Desktop Services (service restart)
 # 3. Adobe Acrobat DC Sign-in Fix (registry modification)
+# 4. Advanced MSP Cleanup (disk space recovery from Windows Installer cache)
 
 # Interactive Menu Options:
-# - Enter a single number: 1, 2, or 3
+# - Enter a single number: 1, 2, 3, or 4
 # - Enter "Q" or "q" to quit without making changes
 # - ONE operation at a time for better tracking and control
 #>

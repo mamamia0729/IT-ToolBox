@@ -5,6 +5,46 @@ All notable changes to the IT-ToolBox project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.0] - 2025-09-23
+
+### Added
+- **🆕 Advanced MSP Cleanup Operation**: Revolutionary disk space recovery feature
+- **📊 Intelligent File Analysis**: Smart analysis of Windows Installer MSP files with size and age reporting
+- **⚡ Real-time Progress Tracking**: Progress updates every 25 files during cleanup operations
+- **🛡️ Administrative Share Validation**: Secure remote access validation before operations
+- **💾 Massive Space Recovery**: Potential to recover 100+ GB per machine from old MSP files
+- **📋 Enhanced Interactive Menu**: Updated menu system with 4th operation option
+- **📚 WARP.md Development Guide**: Comprehensive development guidance for enhanced collaboration
+
+### Enhanced
+- **🔧 Extended Architecture**: Custom operation type framework (Service/Registry/Custom)
+- **🎛️ Improved Menu Instructions**: Clear guidance for 4 operation choices
+- **📈 Enhanced Extensibility**: Framework supports custom operations beyond services and registry
+- **🔍 Better Error Handling**: Enhanced error messages with actionable guidance
+- **✅ User Confirmation Workflow**: Multiple confirmation steps for destructive operations
+- **📊 Size Calculation Engine**: Before/after analysis with precise space recovery metrics
+
+### Technical Improvements
+- **Custom Operation Processing**: New execution path for custom operations like MSP cleanup
+- **UNC Path Validation**: Robust administrative share access checking
+- **Progress Reporting System**: Real-time feedback during long-running operations
+- **Batch File Processing**: Efficient handling of large file sets with progress tracking
+- **Memory Optimization**: Optimized for processing thousands of files without memory issues
+- **Cross-Platform Compatibility**: Maintained PowerShell 5.1+ and Core compatibility
+
+### User Experience
+- **4-Operation Menu**: Expanded from 3 to 4 operations with clear descriptions
+- **Progress Indicators**: Visual feedback during cleanup operations
+- **Size Reporting**: Clear before/after space analysis
+- **Enhanced Confirmations**: User-friendly confirmation dialogs with space impact info
+- **Better Instructions**: Updated menu instructions to include all 4 operations
+
+### Documentation
+- **WARP.md Guide**: Comprehensive development and collaboration guide
+- **Updated README**: Reflects new capabilities and usage examples
+- **Enhanced Examples**: Real-world usage scenarios for disk space recovery
+- **Technical Architecture**: Detailed extension patterns and customization guides
+
 ## [3.2.0] - 2025-01-12
 
 ### Added

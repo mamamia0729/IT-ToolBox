@@ -9,6 +9,7 @@
     - Remote Desktop Services restart 
     - Adobe Acrobat DC sign-in fix (registry modification)
     - Advanced MSP Cleanup (disk space recovery from Windows Installer cache)
+    - Remote Session Management (view and logoff user sessions)
     - Always shows interactive menu for operation selection (expandable for future features)
     - Prompts for computer name after operation selection
     - Connectivity testing, service status checking, and proper error handling
@@ -24,10 +25,10 @@
 
 .NOTES
     Author: IT Support Team
-    Version: 4.0 - Added Advanced MSP Cleanup feature (disk space recovery)
+    Version: 5.1 - Added continuous operation loop (return to menu after each operation)
     Requires: PowerShell 5.1+, Administrative privileges for remote operations
-    Workflow: Menu first → Operation selection → Computer name prompt → Execute
-    Future: Additional services/fixes can be easily added to the $availableServices array
+    Workflow: Menu first → Operation selection → Computer name prompt → Execute → Continue/Exit choice
+    Features: Continuous loop allows multiple operations without restarting script
 #>
 
 param(
@@ -183,12 +184,12 @@ function Show-ServiceSelectionMenu {
     Write-Host "`nOptions:" -ForegroundColor White
     Write-Host "Q. Quit" -ForegroundColor Yellow
     Write-Host "`nInstructions:" -ForegroundColor White
-Write-Host "- Enter a single number (1, 2, 3, or 4)" -ForegroundColor Gray
+Write-Host "- Enter a single number (1, 2, 3, 4, or 5)" -ForegroundColor Gray
     Write-Host "- Enter 'Q' to quit without making changes" -ForegroundColor Gray
     Write-Host ("=" * 60) -ForegroundColor Cyan
     
     do {
-        $selection = Read-Host "`nSelect operation to perform (1, 2, 3, 4, or Q to quit)"
+        $selection = Read-Host "`nSelect operation to perform (1, 2, 3, 4, 5, or Q to quit)"
         
         # Handle empty or whitespace-only input (PS 5.1 compatible)
         if ($selection -eq $null -or $selection.Trim() -eq "") {
@@ -217,6 +218,232 @@ Write-Host "- Enter a single number (1, 2, 3, or 4)" -ForegroundColor Gray
         Write-Host "Please try again." -ForegroundColor Yellow
         
     } while ($true)
+}
+
+# Function to manage remote user sessions
+function Invoke-RemoteSessionManagement {
+    param(
+        [string]$Computer
+    )
+    
+    Write-Host "`nStarting Remote Session Management on $Computer..." -ForegroundColor Cyan
+    
+    try {
+        # Get current user sessions
+        Write-Host "Retrieving active user sessions..." -ForegroundColor Yellow
+        $qUserOutput = cmd /c "quser /server:$Computer 2>&1"
+        
+        if ($LASTEXITCODE -ne 0) {
+            # Check if it's specifically "No User exists" (no sessions) vs actual error
+            if ($qUserOutput -match "No User exists") {
+                Write-Host "[INFO] No active user sessions found on $Computer" -ForegroundColor Green
+                Write-Host "[INFO] This is normal for servers or workstations with no logged-in users" -ForegroundColor Yellow
+                return $true
+            } else {
+                Write-Host "[FAIL] Cannot retrieve user sessions: $qUserOutput" -ForegroundColor Red
+                return $false
+            }
+        }
+        
+        # Parse and display sessions
+        $sessions = @()
+        $lines = $qUserOutput -split "`n" | Where-Object { $_ -match "\S" }
+        
+        if ($lines.Count -le 1) {
+            Write-Host "[INFO] No active user sessions found" -ForegroundColor Green
+            return $true
+        }
+        
+        Write-Host "`n[ACTIVE SESSIONS on $Computer]" -ForegroundColor White
+        Write-Host ($lines[0]) -ForegroundColor Cyan  # Header
+        
+        for ($i = 1; $i -lt $lines.Count; $i++) {
+            $line = $lines[$i].Trim()
+            if ($line) {
+                # Parse session info (basic parsing)
+                $parts = $line -split "\s+", 6
+                if ($parts.Count -ge 3) {
+                    $sessionInfo = @{
+                        Username = $parts[0]
+                        SessionName = if ($parts[1] -match "^\d+$") { "" } else { $parts[1] }
+                        ID = if ($parts[1] -match "^\d+$") { $parts[1] } else { $parts[2] }
+                        State = if ($parts[1] -match "^\d+$") { $parts[2] } else { $parts[3] }
+                        IdleTime = if ($parts[1] -match "^\d+$") { $parts[3] } else { $parts[4] }
+                        LogonTime = if ($parts[1] -match "^\d+$") { ($parts[4..5] -join " ") } else { $parts[5] }
+                        DisplayLine = $line
+                        LineNumber = $i
+                    }
+                    $sessions += $sessionInfo
+                }
+                
+                # Color code based on state and idle time
+                $color = "White"
+                if ($line -match "Disc") { $color = "Yellow" }  # Disconnected
+                if ($line -match "\d+\+") { $color = "Red" }     # Very old (days+)
+                
+                Write-Host "$i. $line" -ForegroundColor $color
+            }
+        }
+        
+        # Session management options
+        Write-Host "`n[SESSION MANAGEMENT OPTIONS]" -ForegroundColor Cyan
+        Write-Host "1. Auto-cleanup stale sessions (disconnected 1+ days)" -ForegroundColor White
+        Write-Host "2. Manually select sessions to logoff" -ForegroundColor White
+        Write-Host "3. View only (no changes)" -ForegroundColor White
+        Write-Host "Q. Return to main menu" -ForegroundColor Yellow
+        
+        do {
+            $choice = Read-Host "`nSelect option (1, 2, 3, or Q)"
+            
+            if ($choice -eq "Q" -or $choice -eq "q") {
+                Write-Host "[INFO] Session management cancelled" -ForegroundColor Yellow
+                return $true
+            }
+            
+            if ($choice -eq "1") {
+                # Auto-cleanup stale sessions
+                $staleSessions = $sessions | Where-Object { 
+                    $_.State -eq "Disc" -and $_.IdleTime -match "\d+\+" 
+                }
+                
+                if ($staleSessions.Count -gt 0) {
+                    Write-Host "`n[STALE SESSIONS FOUND]" -ForegroundColor Yellow
+                    Write-Host "These may cause account lockouts due to cached credentials!" -ForegroundColor Yellow
+                    
+                    foreach ($stale in $staleSessions) {
+                        Write-Host "  User: $($stale.Username), ID: $($stale.ID), Idle: $($stale.IdleTime)" -ForegroundColor Red
+                    }
+                    
+                    $cleanup = Read-Host "`nLogoff $($staleSessions.Count) stale session(s)? (Y/N)"
+                    if ($cleanup -eq "Y" -or $cleanup -eq "y") {
+                        foreach ($stale in $staleSessions) {
+                            Write-Host "Logging off session ID $($stale.ID) (User: $($stale.Username))..." -ForegroundColor Yellow
+                            $logoffResult = cmd /c "logoff $($stale.ID) /server:$Computer 2>&1"
+                            
+                            if ($LASTEXITCODE -eq 0) {
+                                Write-Host "[SUCCESS] Logged off session ID $($stale.ID)" -ForegroundColor Green
+                            } else {
+                                Write-Host "[WARN] Failed to logoff session ID $($stale.ID): $logoffResult" -ForegroundColor Yellow
+                            }
+                        }
+                    } else {
+                        Write-Host "[INFO] Stale session cleanup cancelled" -ForegroundColor Yellow
+                    }
+                } else {
+                    Write-Host "`n[SUCCESS] No stale sessions found - all sessions are current" -ForegroundColor Green
+                }
+                break
+            }
+            
+            if ($choice -eq "2") {
+                # Manual session selection
+                Write-Host "`n[MANUAL SESSION SELECTION]" -ForegroundColor Cyan
+                Write-Host "Available sessions:" -ForegroundColor White
+                
+                # Show numbered sessions for selection
+                for ($i = 0; $i -lt $sessions.Count; $i++) {
+                    $session = $sessions[$i]
+                    $color = "White"
+                    if ($session.State -eq "Disc") { $color = "Yellow" }
+                    if ($session.IdleTime -match "\d+\+") { $color = "Red" }
+                    
+                    Write-Host "$($i + 1). User: $($session.Username), ID: $($session.ID), State: $($session.State), Idle: $($session.IdleTime)" -ForegroundColor $color
+                }
+                
+                do {
+                    $selection = Read-Host "`nEnter session number(s) to logoff (comma-separated, or 'C' to cancel)"
+                    
+                    if ($selection -eq "C" -or $selection -eq "c") {
+                        Write-Host "[INFO] Manual session selection cancelled" -ForegroundColor Yellow
+                        break
+                    }
+                    
+                    # Parse selection
+                    $selectedNumbers = @()
+                    try {
+                        $parts = $selection -split "," | ForEach-Object { $_.Trim() }
+                        foreach ($part in $parts) {
+                            if ($part -match "^\d+$") {
+                                $num = [int]$part
+                                if ($num -ge 1 -and $num -le $sessions.Count) {
+                                    $selectedNumbers += ($num - 1)  # Convert to 0-based index
+                                } else {
+                                    throw "Number $num is out of range (1-$($sessions.Count))"
+                                }
+                            } else {
+                                throw "Invalid input: '$part'"
+                            }
+                        }
+                    } catch {
+                        Write-Host "[ERROR] $($_.Exception.Message)" -ForegroundColor Red
+                        Write-Host "Please enter valid session numbers (1-$($sessions.Count)) separated by commas" -ForegroundColor Yellow
+                        continue
+                    }
+                    
+                    if ($selectedNumbers.Count -eq 0) {
+                        Write-Host "[ERROR] No valid sessions selected" -ForegroundColor Red
+                        continue
+                    }
+                    
+                    # Show selected sessions for confirmation
+                    Write-Host "`n[SELECTED SESSIONS FOR LOGOFF]" -ForegroundColor Yellow
+                    $selectedSessions = @()
+                    foreach ($index in $selectedNumbers) {
+                        $session = $sessions[$index]
+                        $selectedSessions += $session
+                        Write-Host "  User: $($session.Username), ID: $($session.ID), State: $($session.State)" -ForegroundColor Red
+                    }
+                    
+                    $confirm = Read-Host "`nProceed to logoff $($selectedSessions.Count) session(s)? (Y/N)"
+                    if ($confirm -eq "Y" -or $confirm -eq "y") {
+                        foreach ($session in $selectedSessions) {
+                            Write-Host "Logging off session ID $($session.ID) (User: $($session.Username))..." -ForegroundColor Yellow
+                            $logoffResult = cmd /c "logoff $($session.ID) /server:$Computer 2>&1"
+                            
+                            if ($LASTEXITCODE -eq 0) {
+                                Write-Host "[SUCCESS] Logged off session ID $($session.ID)" -ForegroundColor Green
+                            } else {
+                                Write-Host "[WARN] Failed to logoff session ID $($session.ID): $logoffResult" -ForegroundColor Yellow
+                            }
+                        }
+                    } else {
+                        Write-Host "[INFO] Manual session logoff cancelled" -ForegroundColor Yellow
+                    }
+                    
+                    break
+                    
+                } while ($true)
+                
+                break
+            }
+            
+            if ($choice -eq "3") {
+                # View only
+                Write-Host "`n[INFO] View-only mode - no changes made" -ForegroundColor Green
+                break
+            }
+            
+            Write-Host "[ERROR] Invalid choice: $choice. Please enter 1, 2, 3, or Q" -ForegroundColor Red
+            
+        } while ($true)
+        
+        # Show updated session list if any logoffs were performed
+        if ($choice -eq "1" -or $choice -eq "2") {
+            Write-Host "`n[UPDATED SESSION LIST]" -ForegroundColor Cyan
+            $updatedOutput = cmd /c "quser /server:$Computer 2>&1"
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host $updatedOutput -ForegroundColor White
+            } else {
+                Write-Host "No active sessions remaining" -ForegroundColor Green
+            }
+        }
+        
+        return $true
+        
+    } catch {
+        Write-Host "[FAIL] Error during session management: $($_.Exception.Message)" -ForegroundColor Red
+        return $false
+    }
 }
 
 # Function to run Advanced MSP Cleanup
@@ -422,6 +649,12 @@ $availableServices = @(
         DisplayName = "Advanced MSP Cleanup"
         Description = "Cleans up old MSP files from Windows Installer cache (can recover 100+ GB)"
         Type = "Custom"
+    }),
+    (New-Object PSObject -Property @{
+        Name = "SessionManagement"
+        DisplayName = "Remote Session Management"
+        Description = "View active user sessions and logoff stale sessions (prevents account lockouts)"
+        Type = "Custom"
     })
     # TO ADD MORE SERVICES, add them here following this pattern:
     # ,(New-Object PSObject -Property @{
@@ -432,107 +665,148 @@ $availableServices = @(
     # })
 )
 
-# Step 1: Show operation selection menu
-Write-Host "`nStep 1: Select operation to perform" -ForegroundColor Magenta
-$servicesToRestart = Show-ServiceSelectionMenu -AvailableServices $availableServices
-
-if ($servicesToRestart -eq $null -or $servicesToRestart.Count -eq 0) {
-    Write-Host "No operation selected. Exiting." -ForegroundColor Yellow
-    exit 0
-}
-
-Write-Host "`nSelected operation:" -ForegroundColor Green
-Write-Host "  - $($servicesToRestart[0].DisplayName) ($($servicesToRestart[0].Name))" -ForegroundColor White
-
-# Step 2: Get computer name
-Write-Host "`nStep 2: Specify target computer" -ForegroundColor Magenta
+# Main execution loop
 do {
-    $ComputerName = Read-Host "Enter the target computer name or IP address"
+    # Step 1: Show operation selection menu
+    Write-Host "`nStep 1: Select operation to perform" -ForegroundColor Magenta
+    $servicesToRestart = Show-ServiceSelectionMenu -AvailableServices $availableServices
     
-    if ($ComputerName -eq $null -or $ComputerName.Trim() -eq "") {
-        Write-Host "Please enter a valid computer name or IP address." -ForegroundColor Red
+    if ($servicesToRestart -eq $null -or $servicesToRestart.Count -eq 0) {
+        Write-Host "Exiting IT-ToolBox. Thank you!" -ForegroundColor Cyan
+        break
+    }
+    
+    Write-Host "`nSelected operation:" -ForegroundColor Green
+    Write-Host "  - $($servicesToRestart[0].DisplayName) ($($servicesToRestart[0].Name))" -ForegroundColor White
+    
+    # Step 2: Get computer name
+    Write-Host "`nStep 2: Specify target computer" -ForegroundColor Magenta
+    do {
+        $ComputerName = Read-Host "Enter the target computer name or IP address"
+        
+        if ($ComputerName -eq $null -or $ComputerName.Trim() -eq "") {
+            Write-Host "Please enter a valid computer name or IP address." -ForegroundColor Red
+            continue
+        }
+        
+        break
+    } while ($true)
+    
+    Write-Host "`nTarget Computer: $ComputerName" -ForegroundColor White
+    
+    # Step 3: Confirm before proceeding
+    Write-Host "`nStep 3: Final confirmation" -ForegroundColor Magenta
+    $confirmation = Read-Host "Proceed with '$($servicesToRestart[0].DisplayName)' on '$ComputerName'? (Y/N)"
+    if ($confirmation -ne "Y" -and $confirmation -ne "y") {
+        Write-Host "Operation cancelled by user." -ForegroundColor Yellow
         continue
     }
     
-    break
-} while ($true)
-
-Write-Host "`nTarget Computer: $ComputerName" -ForegroundColor White
-
-# Step 3: Confirm before proceeding
-Write-Host "`nStep 3: Final confirmation" -ForegroundColor Magenta
-$confirmation = Read-Host "Proceed with '$($servicesToRestart[0].DisplayName)' on '$ComputerName'? (Y/N)"
-if ($confirmation -ne "Y" -and $confirmation -ne "y") {
-    Write-Host "Operation cancelled by user." -ForegroundColor Yellow
-    exit 0
-}
-
-# Step 4: Test connectivity
-Write-Host "`nStep 4: Testing connectivity" -ForegroundColor Magenta
-if (-not (Test-RemoteConnectivity -Computer $ComputerName)) {
-    Write-Host "`nCannot connect to $ComputerName. Exiting." -ForegroundColor Red
-    exit 1
-}
-
-# Step 5: Execute operations
-Write-Host "`nStep 5: Executing operations" -ForegroundColor Magenta
-
-# Separate services, registry operations, and custom operations
-$services = $servicesToRestart | Where-Object { $_.Type -eq "Service" -or $_.Type -eq $null }
-$registryOps = $servicesToRestart | Where-Object { $_.Type -eq "Registry" }
-$customOps = $servicesToRestart | Where-Object { $_.Type -eq "Custom" }
-
-# Show initial service status (if any services selected)
-if ($services.Count -gt 0) {
-    $serviceNames = $services | ForEach-Object { $_.Name }
-    Show-ServiceStatus -Computer $ComputerName -Services $serviceNames
-}
-
-# Execute registry operations first
-foreach ($regOp in $registryOps) {
-    if ($regOp.Name -eq "AdobeFix") {
-        $success = Set-AdobeRegistryFix -Computer $ComputerName
+    # Step 4: Test connectivity
+    Write-Host "`nStep 4: Testing connectivity" -ForegroundColor Magenta
+    if (-not (Test-RemoteConnectivity -Computer $ComputerName)) {
+        Write-Host "`nCannot connect to $ComputerName." -ForegroundColor Red
         
-        if ($success) {
-            Write-Host "[SUCCESS] $($regOp.DisplayName) applied successfully" -ForegroundColor Green
+        Write-Host "`n[CONTINUE OPTIONS]" -ForegroundColor Yellow
+        $continueChoice = Read-Host "Return to main menu? (Y/N)"
+        if ($continueChoice -eq "Y" -or $continueChoice -eq "y") {
+            continue
         } else {
-            Write-Host "[FAILED] Failed to apply $($regOp.DisplayName)" -ForegroundColor Red
+            Write-Host "Exiting IT-ToolBox. Thank you!" -ForegroundColor Cyan
+            break
         }
     }
-}
-
-# Execute custom operations
-foreach ($customOp in $customOps) {
-    if ($customOp.Name -eq "MSPCleanup") {
-        $success = Invoke-AdvancedMSPCleanup -Computer $ComputerName
-        
-        if ($success) {
-            Write-Host "[SUCCESS] $($customOp.DisplayName) completed successfully" -ForegroundColor Green
-        } else {
-            Write-Host "[FAILED] Failed to complete $($customOp.DisplayName)" -ForegroundColor Red
-        }
-    }
-}
-
-# Execute service restarts
-foreach ($service in $services) {
-    $success = Restart-RemoteService -Computer $ComputerName -ServiceName $service.Name -DisplayName $service.DisplayName
     
-    if ($success) {
-        Write-Host "[SUCCESS] $($service.DisplayName) restarted successfully" -ForegroundColor Green
-    } else {
-        Write-Host "[FAILED] Failed to restart $($service.DisplayName)" -ForegroundColor Red
+    # Step 5: Execute operations
+    Write-Host "`nStep 5: Executing operations" -ForegroundColor Magenta
+    
+    # Separate services, registry operations, and custom operations
+    $services = $servicesToRestart | Where-Object { $_.Type -eq "Service" -or $_.Type -eq $null }
+    $registryOps = $servicesToRestart | Where-Object { $_.Type -eq "Registry" }
+    $customOps = $servicesToRestart | Where-Object { $_.Type -eq "Custom" }
+    
+    # Show initial service status (if any services selected)
+    if ($services.Count -gt 0) {
+        $serviceNames = $services | ForEach-Object { $_.Name }
+        Show-ServiceStatus -Computer $ComputerName -Services $serviceNames
     }
-}
-
-# Show final service status (if any services were restarted)
-if ($services.Count -gt 0) {
-    Write-Host ("`n" + ("=" * 50))
-    Write-Host "Final Status Check:" -ForegroundColor Cyan
-    Show-ServiceStatus -Computer $ComputerName -Services $serviceNames
-}
-
-Write-Host "`nScript completed." -ForegroundColor Cyan
+    
+    # Execute registry operations first
+    foreach ($regOp in $registryOps) {
+        if ($regOp.Name -eq "AdobeFix") {
+            $success = Set-AdobeRegistryFix -Computer $ComputerName
+            
+            if ($success) {
+                Write-Host "[SUCCESS] $($regOp.DisplayName) applied successfully" -ForegroundColor Green
+            } else {
+                Write-Host "[FAILED] Failed to apply $($regOp.DisplayName)" -ForegroundColor Red
+            }
+        }
+    }
+    
+    # Execute custom operations
+    foreach ($customOp in $customOps) {
+        if ($customOp.Name -eq "MSPCleanup") {
+            $success = Invoke-AdvancedMSPCleanup -Computer $ComputerName
+            
+            if ($success) {
+                Write-Host "[SUCCESS] $($customOp.DisplayName) completed successfully" -ForegroundColor Green
+            } else {
+                Write-Host "[FAILED] Failed to complete $($customOp.DisplayName)" -ForegroundColor Red
+            }
+        }
+        elseif ($customOp.Name -eq "SessionManagement") {
+            $success = Invoke-RemoteSessionManagement -Computer $ComputerName
+            
+            if ($success) {
+                Write-Host "[SUCCESS] $($customOp.DisplayName) completed successfully" -ForegroundColor Green
+            } else {
+                Write-Host "[FAILED] Failed to complete $($customOp.DisplayName)" -ForegroundColor Red
+            }
+        }
+    }
+    
+    # Execute service restarts
+    foreach ($service in $services) {
+        $success = Restart-RemoteService -Computer $ComputerName -ServiceName $service.Name -DisplayName $service.DisplayName
+        
+        if ($success) {
+            Write-Host "[SUCCESS] $($service.DisplayName) restarted successfully" -ForegroundColor Green
+        } else {
+            Write-Host "[FAILED] Failed to restart $($service.DisplayName)" -ForegroundColor Red
+        }
+    }
+    
+    # Show final service status (if any services were restarted)
+    if ($services.Count -gt 0) {
+        Write-Host ("`n" + ("=" * 50))
+        Write-Host "Final Status Check:" -ForegroundColor Cyan
+        Show-ServiceStatus -Computer $ComputerName -Services $serviceNames
+    }
+    
+    Write-Host "`nOperation completed." -ForegroundColor Cyan
+    
+    # Ask user if they want to continue
+    Write-Host "`n[CONTINUE OPTIONS]" -ForegroundColor Yellow
+    Write-Host "1. Return to main menu (perform another operation)" -ForegroundColor White
+    Write-Host "2. Exit IT-ToolBox" -ForegroundColor White
+    
+    do {
+        $continueChoice = Read-Host "`nSelect option (1 or 2)"
+        
+        if ($continueChoice -eq "1") {
+            Write-Host "`nReturning to main menu..." -ForegroundColor Green
+            Write-Host ("=" * 60) -ForegroundColor Cyan
+            break
+        } elseif ($continueChoice -eq "2") {
+            Write-Host "`nExiting IT-ToolBox. Thank you!" -ForegroundColor Cyan
+            exit 0
+        } else {
+            Write-Host "Invalid choice. Please enter 1 or 2." -ForegroundColor Red
+        }
+    } while ($true)
+    
+} while ($true)
 
 # Usage examples (commented out)
 <#
@@ -559,9 +833,10 @@ powershell.exe -File .\IT-ToolBox.ps1
 # 2. Remote Desktop Services (service restart)
 # 3. Adobe Acrobat DC Sign-in Fix (registry modification)
 # 4. Advanced MSP Cleanup (disk space recovery from Windows Installer cache)
+# 5. Remote Session Management (view and logoff user sessions)
 
 # Interactive Menu Options:
-# - Enter a single number: 1, 2, 3, or 4
+# - Enter a single number: 1, 2, 3, 4, or 5
 # - Enter "Q" or "q" to quit without making changes
 # - ONE operation at a time for better tracking and control
 #>

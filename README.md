@@ -3,7 +3,7 @@
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-blue)](https://github.com/PowerShell/PowerShell)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey)](https://www.microsoft.com/en-us/windows)
-[![Version](https://img.shields.io/badge/Version-4.0-orange)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/Version-5.1-orange)](CHANGELOG.md)
 
 > **Interactive Remote Management Utility** - Your complete IT support toolkit for managing Windows services, applying fixes, and recovering disk space on remote computers.
 
@@ -13,14 +13,16 @@ IT-ToolBox is a professional interactive PowerShell script designed for system a
 
 ### 🎯 Key Features
 
-- **🎛️ Interactive Menu System**: User-friendly selection interface
-- **🔌 Remote Connectivity Testing**: Automatic ping and WMI/RPC validation
+- **🔄 Continuous Operation Loop**: Perform multiple operations without restarting the script
+- **🎛️ Enhanced Interactive Menu**: User-friendly selection interface with return-to-menu capability
+- **👥 Advanced Session Management**: Manual session selection with account lockout prevention
+- **🔌 Smart Connectivity Testing**: Automatic ping and WMI/RPC validation with recovery options
 - **📊 Service Status Monitoring**: Before and after operation status checks
 - **🔧 Service Management**: Reliable remote service restart capabilities
 - **🗂️ Registry Operations**: Safe remote registry modifications
 - **💾 Disk Space Recovery**: Advanced MSP cleanup can free 100+ GB per machine
 - **⚡ Real-time Feedback**: Color-coded status messages and progress indicators
-- **🛡️ Safety First**: Multiple confirmation steps and error handling
+- **🛡️ Enhanced Safety**: Multiple confirmation steps, graceful error handling, and recovery options
 - **🔄 Extensible Design**: Easy to add new operations and services
 
 ## 📁 Repository Structure
@@ -64,6 +66,17 @@ IT-ToolBox/
 - **Potential Recovery**: 100+ GB of disk space per machine
 - **Features**: Progress tracking, size analysis, administrative share validation
 
+### 5. 👥 Remote Session Management **NEW!**
+- **Type**: Session Administration
+- **Purpose**: View active user sessions and logoff stale sessions (prevents account lockouts)
+- **Features**: 
+  - Auto-cleanup mode for stale disconnected sessions (1+ days)
+  - Manual selection mode for choosing specific sessions to logoff
+  - View-only mode for monitoring sessions without changes
+  - Color-coded session display (Active/Disconnected/Stale)
+  - Graceful handling of systems with no active sessions
+- **Commands Used**: `quser /server:` and `logoff /server:` (WinRM-free compatibility)
+
 ## 🚀 Quick Start
 
 ### Prerequisites
@@ -85,15 +98,18 @@ pwsh -File .\Scripts\IT-ToolBox.ps1
 powershell.exe -File .\Scripts\IT-ToolBox.ps1
 ```
 
-### 📋 Interactive Workflow
+### 📋 Enhanced Interactive Workflow **NEW!**
 
-The script follows a simple 5-step process:
+The script now features a continuous operation loop with a 6-step process:
 
 1. **🎛️ Operation Selection**: Choose from available operations via interactive menu
 2. **🖥️ Target Specification**: Enter computer name or IP address
 3. **✅ Confirmation**: Confirm operation before execution
-4. **🔌 Connectivity Test**: Automatic connectivity validation
+4. **🔌 Connectivity Test**: Automatic connectivity validation with recovery options
 5. **⚡ Execution**: Perform selected operation with real-time feedback
+6. **🔄 Continue Choice**: Return to main menu or exit → **[Loop back to step 1]**
+
+**Key Enhancement**: No need to restart the script! Perform multiple operations seamlessly.
 
 ## 📊 Usage Example
 
@@ -114,14 +130,16 @@ Available Operations:
    Description: Applies registry fix to stop Adobe Acrobat DC sign-in prompts
 4. Advanced MSP Cleanup (MSPCleanup)
    Description: Cleans up old MSP files from Windows Installer cache (can recover 100+ GB)
+5. Remote Session Management (SessionManagement)
+   Description: View active user sessions and logoff stale sessions (prevents account lockouts)
 
 Options:
 Q. Quit
 
-Select operation to perform (1, 2, 3, 4, or Q to quit): 4
+Select operation to perform (1, 2, 3, 4, 5, or Q to quit): 5
 
 Selected operation:
-  - Advanced MSP Cleanup (MSPCleanup)
+  - Remote Session Management (SessionManagement)
 
 Step 2: Specify target computer
 Enter the target computer name or IP address: PC001
@@ -129,7 +147,7 @@ Enter the target computer name or IP address: PC001
 Target Computer: PC001
 
 Step 3: Final confirmation
-Proceed with 'Advanced MSP Cleanup' on 'PC001'? (Y/N): Y
+Proceed with 'Remote Session Management' on 'PC001'? (Y/N): Y
 
 Step 4: Testing connectivity
 Testing connectivity to PC001...
@@ -138,27 +156,56 @@ Testing connectivity to PC001...
 
 Step 5: Executing operations
 
-Starting Advanced MSP Cleanup on PC001...
-[OK] Administrative share access confirmed
-Analyzing MSP files (this may take a moment)...
-[ANALYSIS] Total MSP files: 1,247 (45.67 GB)
-[ANALYSIS] Files older than 7 days: 892 (32.14 GB)
+Starting Remote Session Management on PC001...
+Retrieving active user sessions...
 
-Proceed with cleanup of 892 files (32.14 GB)? (Y/N): Y
+[ACTIVE SESSIONS on PC001]
+ USERNAME              SESSIONNAME        ID  STATE   IDLE TIME  LOGON TIME
+1. john                 rdp-tcp#0           2  Active          .  9/20/2025 8:30 AM
+2. mary                 rdp-tcp#1           3  Disc        5+00  9/18/2025 2:15 PM
+3. admin               console             1  Active       1:20  9/20/2025 9:45 AM
 
-[INFO] Starting MSP file cleanup...
-[PROGRESS] Deleted 25 files, freed 1.2 GB
-[PROGRESS] Deleted 50 files, freed 2.8 GB
-[PROGRESS] Deleted 75 files, freed 4.1 GB
-...
-[PROGRESS] Deleted 875 files, freed 31.9 GB
+[SESSION MANAGEMENT OPTIONS]
+1. Auto-cleanup stale sessions (disconnected 1+ days)
+2. Manually select sessions to logoff
+3. View only (no changes)
+Q. Return to main menu
 
-[SUCCESS] MSP Cleanup completed!
-[SUCCESS] Files deleted: 892
-[SUCCESS] Space freed: 32.14 GB
-[SUCCESS] Advanced MSP Cleanup completed successfully
+Select option (1, 2, 3, or Q): 2
 
-Script completed.
+[MANUAL SESSION SELECTION]
+Available sessions:
+1. User: john, ID: 2, State: Active, Idle: .
+2. User: mary, ID: 3, State: Disc, Idle: 5+00
+3. User: admin, ID: 1, State: Active, Idle: 1:20
+
+Enter session number(s) to logoff (comma-separated, or 'C' to cancel): 2
+
+[SELECTED SESSIONS FOR LOGOFF]
+  User: mary, ID: 3, State: Disc
+
+Proceed to logoff 1 session(s)? (Y/N): Y
+Logging off session ID 3 (User: mary)...
+[SUCCESS] Logged off session ID 3
+
+[UPDATED SESSION LIST]
+ USERNAME              SESSIONNAME        ID  STATE   IDLE TIME  LOGON TIME
+ john                  rdp-tcp#0           2  Active          .  9/20/2025 8:30 AM
+ admin                 console             1  Active       1:25  9/20/2025 9:45 AM
+[SUCCESS] Remote Session Management completed successfully
+
+Operation completed.
+
+[CONTINUE OPTIONS]
+1. Return to main menu (perform another operation)
+2. Exit IT-ToolBox
+
+Select option (1 or 2): 1
+
+Returning to main menu...
+============================================================
+
+[Menu displays again for next operation...]
 ```
 
 ## 🔧 Technical Features
@@ -210,7 +257,13 @@ The script is designed for easy expansion. To add new operations:
 })
 ```
 
-### Recent Major Enhancement (v4.0)
+### Recent Major Enhancements (v5.1) **NEW!**
+- **🔄 Continuous Operation Loop**: Perform multiple operations without restarting the script
+- **👥 Enhanced Session Management**: Manual session selection with account lockout prevention
+- **🛡️ Improved Error Handling**: Graceful handling of "No User exists" scenarios
+- **🎛️ Better User Experience**: Continue/exit options after each operation with menu return
+
+### Previous Major Enhancement (v4.0)
 - **💾 Advanced MSP Cleanup**: Revolutionary disk space recovery feature
 - **📊 Intelligent Analysis**: Smart file analysis with age and size reporting
 - **⚡ Progress Tracking**: Real-time progress updates during operations
@@ -234,6 +287,8 @@ The script is designed for easy expansion. To add new operations:
 - **Remote Access**: "Can't RDP to server" → Restart Remote Desktop Services  
 - **Adobe Problems**: "Adobe keeps asking to sign in" → Apply registry fix
 - **Disk Space Issues**: "Server running out of space" → Advanced MSP Cleanup (can recover 100+ GB)
+- **Account Lockouts**: "User account keeps getting locked out" → Remote Session Management (cleanup stale sessions)
+- **Session Issues**: "Need to disconnect a specific user" → Manual session selection and logoff
 
 ### System Administration
 - **Maintenance Windows**: Quick service restarts during maintenance
@@ -274,12 +329,14 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🏆 Key Achievements
 
-- **🎛️ User-Friendly Design**: Interactive menu system for non-PowerShell experts
-- **💾 Disk Space Recovery**: Advanced MSP cleanup can recover 100+ GB per machine
-- **🛡️ Production-Ready**: Comprehensive error handling and safety features
+- **🔄 Continuous Operation Loop**: Revolutionary workflow - perform multiple operations seamlessly
+- **👥 Advanced Session Management**: Prevent account lockouts with intelligent session cleanup
+- **🎛️ User-Friendly Design**: Enhanced interactive menu system for non-PowerShell experts
+- **💾 Massive Disk Space Recovery**: Advanced MSP cleanup can recover 100+ GB per machine
+- **🛡️ Production-Ready**: Comprehensive error handling, recovery options, and safety features
 - **🔧 Extensible Architecture**: Easy to add new operations and services
 - **📊 Professional Presentation**: Color-coded feedback and detailed status reporting
-- **⚡ Efficient Operations**: Optimized remote management workflows
+- **⚡ Efficient Operations**: Optimized remote management workflows without WinRM dependency
 - **🚀 Continuous Innovation**: Regular feature updates based on real-world enterprise needs
 
 ---

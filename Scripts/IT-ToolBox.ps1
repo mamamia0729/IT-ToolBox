@@ -24,7 +24,7 @@
     Run from any PowerShell version
 
 .NOTES
-    Author: IT Support Team
+    Author: Thinh Le
     Version: 5.1 - Added continuous operation loop (return to menu after each operation)
     Requires: PowerShell 5.1+, Administrative privileges for remote operations
     Workflow: Menu first → Operation selection → Computer name prompt → Execute → Continue/Exit choice
